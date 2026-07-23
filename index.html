@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="pixelduel — Pixel-by-pixel image comparison tool. Drop two images, see the diff. Zero dependencies, pure Python stdlib.">
+<meta property="og:title" content="pixelduel — Image Diff Tool">
+<meta property="og:description" content="Compare two images pixel by pixel. Drop, diff, discover the differences. Free & open source.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<title>⚔️ pixelduel — Image Comparison</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --green: #3fb950;
+    --amber: #d2991d;
+    --red: #f85149;
+    --blue: #58a6ff;
+    --dim: #8b949e;
+    --text: #c9d1d9;
+    --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+    --purple: #a371f7;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:var(--mono); font-size:13px; line-height:1.6; min-height:100vh; }
+  .container { max-width:960px; margin:0 auto; padding:40px 20px 80px; }
+
+  header { text-align:center; margin-bottom:28px; }
+  header .logo { font-size:56px; margin-bottom:4px; }
+  header h1 { font-size:28px; color:var(--green); margin-bottom:4px; letter-spacing:-0.5px; }
+  header .subtitle { color:var(--dim); font-size:12px; }
+
+  /* Drop zones row */
+  .drop-row { display:flex; gap:12px; margin-bottom:20px; }
+  .drop-zone {
+    flex:1; min-height:180px;
+    border:2px dashed var(--border);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    cursor:pointer; transition:all 0.2s; position:relative;
+    background:var(--card); text-align:center; padding:20px;
+  }
+  .drop-zone:hover, .drop-zone.drag-over { border-color:var(--green); background:#1a2332; }
+  .drop-zone.has-image { border-style:solid; }
+  .drop-zone .zone-icon { font-size:36px; margin-bottom:8px; }
+  .drop-zone .zone-label { font-size:12px; color:var(--dim); margin-bottom:4px; }
+  .drop-zone .zone-hint { font-size:10px; color:var(--dim); opacity:0.6; }
+  .drop-zone img { max-width:100%; max-height:150px; object-fit:contain; border-radius:4px; }
+  .drop-zone .clear-btn {
+    position:absolute; top:8px; right:8px;
+    width:24px; height:24px; background:var(--red); border:none; color:#fff;
+    font-size:14px; cursor:pointer; display:none; align-items:center; justify-content:center;
+    font-family:var(--mono); line-height:1;
+  }
+  .drop-zone.has-image .clear-btn { display:flex; }
+  .drop-zone.has-image .zone-icon, .drop-zone.has-image .zone-hint { display:none; }
+
+  /* Settings */
+  .settings-row { display:flex; gap:12px; align-items:flex-end; margin-bottom:20px; flex-wrap:wrap; }
+  .settings-row label { display:block; font-size:11px; color:var(--dim); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px; }
+  .settings-row input { padding:8px 12px; background:var(--card); border:1px solid var(--border); color:var(--text); font-family:var(--mono); font-size:13px; width:100px; transition:border-color 0.2s; }
+  .settings-row input:focus { outline:none; border-color:var(--green); }
+  .btn {
+    padding:10px 24px; background:var(--green); color:#000; border:none;
+    font-family:var(--mono); font-size:13px; font-weight:bold; cursor:pointer;
+    transition:opacity 0.2s;
+  }
+  .btn:hover:not(:disabled) { opacity:0.9; }
+  .btn:disabled { opacity:0.4; cursor:not-allowed; }
+
+  /* Stats */
+  .stats { display:flex; gap:10px; margin-bottom:20px; flex-wrap:wrap; }
+  .stat { flex:1; min-width:90px; text-align:center; padding:14px 8px; background:var(--card); border:1px solid var(--border); }
+  .stat .num { font-size:24px; font-weight:bold; }
+  .stat .num.match { color:var(--green); }
+  .stat .num.diff { color:var(--red); }
+  .stat .label { font-size:10px; color:var(--dim); margin-top:4px; text-transform:uppercase; letter-spacing:0.5px; }
+
+  /* Diff container */
+  .diff-container { position:relative; margin-bottom:20px; background:var(--card); border:1px solid var(--border); display:none; }
+  .diff-container.visible { display:block; }
+  .diff-container canvas { display:block; width:100%; }
+  .diff-container .slider {
+    position:absolute; top:0; bottom:0; width:4px; background:var(--green);
+    cursor:ew-resize; z-index:10;
+  }
+  .diff-container .slider::after {
+    content:''; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:32px; height:32px; background:var(--green); border-radius:50%;
+    box-shadow:0 0 12px rgba(63,185,80,0.5);
+  }
+  .diff-container .slider-label {
+    position:absolute; top:12px; color:var(--green); font-size:10px;
+    font-weight:bold; pointer-events:none;
+    background:rgba(0,0,0,0.8); padding:4px 10px;
+    white-space:nowrap;
+  }
+
+  /* Mode tabs */
+  .mode-tabs { display:flex; gap:0; margin-bottom:0; border-bottom:1px solid var(--border); }
+  .mode-tab {
+    padding:10px 20px; background:transparent; border:none; color:var(--dim);
+    font-family:var(--mono); font-size:12px; cursor:pointer;
+    border-bottom:2px solid transparent; transition:all 0.2s;
+  }
+  .mode-tab:hover { color:var(--text); }
+  .mode-tab.active { color:var(--green); border-bottom-color:var(--green); }
+
+  /* Diff heatmap */
+  .diff-heatmap { display:none; margin-bottom:20px; }
+  .diff-heatmap.visible { display:block; }
+  .diff-heatmap canvas { display:block; width:100%; border:1px solid var(--border); }
+  .heatmap-legend { display:flex; gap:12px; margin-top:8px; font-size:10px; color:var(--dim); align-items:center; justify-content:center; }
+  .heatmap-legend .swatch { display:inline-block; width:12px; height:12px; margin-right:4px; vertical-align:middle; }
+
+  /* No images state */
+  .empty-state { text-align:center; padding:32px; color:var(--dim); font-size:12px; display:none; }
+  .empty-state.visible { display:block; }
+
+  /* Toast */
+  .toast {
+    position:fixed; top:20px; left:50%; transform:translateX(-50%);
+    background:var(--red); color:#fff; padding:10px 24px;
+    font-family:var(--mono); font-size:12px; font-weight:bold;
+    z-index:1000; opacity:0; transition:opacity 0.3s; pointer-events:none;
+  }
+  .toast.error { background:var(--red); }
+  .toast.success { background:var(--green); color:#000; }
+  .toast.show { opacity:1; }
+
+  /* Terminal end card */
+  .terminal { margin-top:60px; background:var(--card); border:1px solid var(--border); overflow:hidden; }
+  .terminal-bar { display:flex; align-items:center; gap:6px; padding:8px 12px; background:#1a1f29; border-bottom:1px solid var(--border); }
+  .terminal-bar .dot { width:10px; height:10px; border-radius:50%; }
+  .terminal-bar .dot.red { background:var(--red); }
+  .terminal-bar .dot.yellow { background:var(--amber); }
+  .terminal-bar .dot.green { background:var(--green); }
+  .terminal-bar .title { font-size:10px; color:var(--dim); margin-left:8px; }
+  .terminal-body { padding:24px; font-size:12px; color:var(--green); }
+  .terminal-body .line { margin-bottom:6px; }
+  .terminal-body .prompt { color:var(--green); }
+  .terminal-body .cursor { animation:blink 1s step-end infinite; }
+  .terminal-body .link { color:var(--blue); text-decoration:none; }
+  .terminal-body .link:hover { text-decoration:underline; }
+  .terminal-body .divider { color:var(--dim); margin:12px 0; }
+  .terminal-body .built-by { margin-top:16px; font-size:13px; color:var(--text); }
+  .terminal-body .built-by .name { color:var(--green); font-weight:bold; }
+
+  @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0; } }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+  .fade-in { animation:fadeIn 0.3s ease forwards; }
+
+  @media (max-width:640px) {
+    .container { padding:20px 12px 60px; }
+    header .logo { font-size:40px; }
+    header h1 { font-size:22px; }
+    .drop-row { flex-direction:column; }
+    .settings-row { flex-direction:column; align-items:stretch; }
+    .settings-row input { width:100%; }
+    .btn { width:100%; }
+    .stats { gap:6px; }
+    .stat { padding:10px 4px; min-width:60px; }
+    .stat .num { font-size:18px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div class="logo">⚔️</div>
+    <h1>pixelduel</h1>
+    <p class="subtitle">drop two images · compare pixel by pixel · see the difference</p>
+  </header>
+
+  <!-- Drop zones -->
+  <div class="drop-row">
+    <div class="drop-zone" id="zone1" onclick="this.querySelector('input').click()">
+      <input type="file" accept="image/*" style="display:none" onchange="handleFile(this, 1)">
+      <span class="zone-icon">📸</span>
+      <span class="zone-label">Image A</span>
+      <span class="zone-hint">drop or click</span>
+      <button class="clear-btn" onclick="event.stopPropagation(); clearImage(1)">✕</button>
+    </div>
+    <div class="drop-zone" id="zone2" onclick="this.querySelector('input').click()">
+      <input type="file" accept="image/*" style="display:none" onchange="handleFile(this, 2)">
+      <span class="zone-icon">🖼️</span>
+      <span class="zone-label">Image B</span>
+      <span class="zone-hint">drop or click</span>
+      <button class="clear-btn" onclick="event.stopPropagation(); clearImage(2)">✕</button>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div class="settings-row">
+    <div>
+      <label>threshold (0–255)</label>
+      <input id="threshold" type="number" value="10" min="0" max="255">
+    </div>
+    <button class="btn" id="diff-btn" onclick="runDiff()" disabled>⚔️ duel!</button>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats" id="stats" style="display:none">
+    <div class="stat"><div class="num match" id="s-match">-</div><div class="label">match</div></div>
+    <div class="stat"><div class="num diff" id="s-diff">-</div><div class="label">different</div></div>
+    <div class="stat"><div class="num" id="s-pct">-</div><div class="label">% match</div></div>
+    <div class="stat"><div class="num" id="s-total">-</div><div class="label">total px</div></div>
+    <div class="stat"><div class="num" id="s-dims">-</div><div class="label">dimensions</div></div>
+  </div>
+
+  <!-- Mode tabs -->
+  <div class="mode-tabs" id="mode-tabs" style="display:none">
+    <button class="mode-tab active" onclick="switchMode('slider')">🔀 slider</button>
+    <button class="mode-tab" onclick="switchMode('heatmap')">🔥 heatmap</button>
+    <button class="mode-tab" onclick="switchMode('sidebyside')">↔️ side by side</button>
+  </div>
+
+  <!-- Slider diff -->
+  <div class="diff-container" id="diff-slider">
+    <canvas id="canvas-slider"></canvas>
+    <div class="slider" id="slider-handle"></div>
+    <div class="slider-label" id="slider-label">image A</div>
+  </div>
+
+  <!-- Heatmap -->
+  <div class="diff-heatmap" id="diff-heatmap">
+    <canvas id="canvas-heatmap"></canvas>
+    <div class="heatmap-legend">
+      <span><span class="swatch" style="background:#000"></span> identical</span>
+      <span><span class="swatch" style="background:var(--amber)"></span> small diff</span>
+      <span><span class="swatch" style="background:#f97316"></span> medium diff</span>
+      <span><span class="swatch" style="background:var(--red)"></span> large diff</span>
+    </div>
+  </div>
+
+  <!-- Side by side -->
+  <div class="diff-container" id="diff-sidebyside" style="display:none">
+    <div style="display:flex; gap:4px;">
+      <div style="flex:1; text-align:center; font-size:10px; color:var(--dim); padding-top:8px;">image A</div>
+      <div style="flex:1; text-align:center; font-size:10px; color:var(--dim); padding-top:8px;">image B</div>
+    </div>
+    <canvas id="canvas-sidebyside"></canvas>
+  </div>
+
+  <!-- Terminal end card -->
+  <div class="terminal">
+    <div class="terminal-bar">
+      <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+      <span class="title">pixelduel — zsh</span>
+    </div>
+    <div class="terminal-body">
+      <div class="line"><span class="prompt">➜</span> <span style="color:var(--red)">pixelduel</span> compare before.png after.png --threshold 10</div>
+      <div class="line divider">────────────────────────────────────────────────────────</div>
+      <div class="line">⚔️ <strong>pixelduel</strong> — Pixel-by-Pixel Image Comparison</div>
+      <div class="line">zero dependencies · Python stdlib · runs anywhere</div>
+      <div class="line">&nbsp;</div>
+      <div class="line">
+        <span class="prompt">▸</span> github: <a class="link" href="https://github.com/realMNohgee/pixelduel" target="_blank">github.com/realMNohgee/pixelduel</a>
+        <span class="cursor">█</span>
+      </div>
+      <div class="line"><span class="prompt">▸</span> marketplace: <a class="link" href="https://hermtica.com/marketplace" target="_blank">hermtica.com/marketplace</a></div>
+      <div class="line built-by">Built by <span class="name">Chris Lund</span> — Founder, <a class="link" href="https://hermtica.com" target="_blank">Hermtica</a></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// --- STATE ---
+let image1 = null; // ImageData
+let image2 = null;
+let img1El = null; // HTMLImageElement
+let img2El = null;
+let diffData = null; // Uint8Array of diff magnitudes
+let currentMode = 'slider';
+
+// --- DRAG & DROP ---
+['zone1','zone2'].forEach((id, idx) => {
+  const zone = document.getElementById(id);
+  const num = idx + 1;
+
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) loadImage(file, num);
+    else showToast('drop an image file (PNG, JPEG, GIF)', 'error');
+  });
+});
+
+function handleFile(input, num) {
+  const file = input.files[0];
+  if (file) loadImage(file, num);
+}
+
+function loadImage(file, num) {
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const img = new Image();
+    img.onload = function() {
+      if (num === 1) { img1El = img; image1 = getImageData(img); }
+      else { img2El = img; image2 = getImageData(img); }
+      updateDropZone(num, img, file.name);
+      updateDiffButton();
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function getImageData(img) {
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  return ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+function updateDropZone(num, img, name) {
+  const zone = document.getElementById('zone' + num);
+  // Remove old preview if any
+  const oldImg = zone.querySelector('img');
+  if (oldImg) oldImg.remove();
+
+  zone.classList.add('has-image');
+  const label = zone.querySelector('.zone-label');
+  label.textContent = name.length > 24 ? name.slice(0, 21) + '...' : name;
+
+  const preview = document.createElement('img');
+  preview.src = img.src;
+  zone.insertBefore(preview, zone.querySelector('.clear-btn'));
+}
+
+function clearImage(num) {
+  if (num === 1) { image1 = null; img1El = null; }
+  else { image2 = null; img2El = null; }
+  diffData = null;
+
+  const zone = document.getElementById('zone' + num);
+  zone.classList.remove('has-image');
+  const preview = zone.querySelector('img');
+  if (preview) preview.remove();
+  const label = zone.querySelector('.zone-label');
+  label.textContent = num === 1 ? 'Image A' : 'Image B';
+
+  hideResults();
+  updateDiffButton();
+}
+
+function updateDiffButton() {
+  document.getElementById('diff-btn').disabled = !(image1 && image2);
+}
+
+function hideResults() {
+  document.getElementById('stats').style.display = 'none';
+  document.getElementById('mode-tabs').style.display = 'none';
+  document.getElementById('diff-slider').classList.remove('visible');
+  document.getElementById('diff-heatmap').classList.remove('visible');
+  document.getElementById('diff-sidebyside').style.display = 'none';
+}
+
+// --- DIFF ---
+function runDiff() {
+  if (!image1 || !image2) return;
+
+  const w1 = image1.width, h1 = image1.height;
+  const w2 = image2.width, h2 = image2.height;
+
+  if (w1 !== w2 || h1 !== h2) {
+    showToast(`dimensions don't match: ${w1}×${h1} vs ${w2}×${h2}`, 'error');
+    return;
+  }
+
+  const threshold = parseInt(document.getElementById('threshold').value) || 10;
+  const d1 = image1.data, d2 = image2.data;
+  const total = w1 * h1;
+  const diffMagnitudes = new Uint8Array(total);
+  let diffCount = 0;
+
+  for (let i = 0, p = 0; i < d1.length; i += 4, p++) {
+    const dr = Math.abs(d1[i] - d2[i]);
+    const dg = Math.abs(d1[i+1] - d2[i+1]);
+    const db = Math.abs(d1[i+2] - d2[i+2]);
+    const maxDiff = Math.max(dr, dg, db);
+
+    if (maxDiff > threshold) {
+      diffCount++;
+      diffMagnitudes[p] = maxDiff;
+    }
+  }
+
+  diffData = diffMagnitudes;
+
+  const matchCount = total - diffCount;
+  const matchPct = ((matchCount / total) * 100).toFixed(2);
+  const diffPct = ((diffCount / total) * 100).toFixed(2);
+
+  // Stats
+  document.getElementById('s-match').textContent = matchCount.toLocaleString();
+  document.getElementById('s-diff').textContent = diffCount.toLocaleString();
+  document.getElementById('s-pct').textContent = matchPct + '%';
+  document.getElementById('s-total').textContent = total.toLocaleString();
+  document.getElementById('s-dims').textContent = `${w1}×${h1}`;
+  document.getElementById('stats').style.display = 'flex';
+
+  // Mode tabs
+  document.getElementById('mode-tabs').style.display = 'flex';
+
+  // Render all modes
+  renderSlider(w1, h1, d1, d2, diffMagnitudes, threshold);
+  renderHeatmap(w1, h1, d1, d2, diffMagnitudes, threshold);
+  renderSideBySide(w1, h1);
+
+  // Show slider by default
+  switchMode('slider');
+}
+
+// --- SLIDER MODE ---
+let sliderPos = 0.5;
+let sliderDragging = false;
+
+function renderSlider(w, h, d1, d2, diffMags, threshold) {
+  const canvas = document.getElementById('canvas-slider');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+
+  // Image A (full)
+  const imgAData = new ImageData(new Uint8ClampedArray(d1), w, h);
+  // Create offscreen canvas for image A
+  const offA = document.createElement('canvas');
+  offA.width = w; offA.height = h;
+  offA.getContext('2d').putImageData(imgAData, 0, 0);
+
+  // Image B (full)
+  const imgBData = new ImageData(new Uint8ClampedArray(d2), w, h);
+  const offB = document.createElement('canvas');
+  offB.width = w; offB.height = h;
+  offB.getContext('2d').putImageData(imgBData, 0, 0);
+
+  canvas._imgA = offA;
+  canvas._imgB = offB;
+
+  drawSlider(canvas, w, h);
+  setupSlider(w, h);
+}
+
+function drawSlider(canvas, w, h) {
+  const ctx = canvas.getContext('2d');
+  const splitX = Math.floor(w * sliderPos);
+
+  // Left: image A
+  ctx.drawImage(canvas._imgA, 0, 0, splitX, h, 0, 0, splitX, h);
+  // Right: image B
+  ctx.drawImage(canvas._imgB, splitX, 0, w - splitX, h, splitX, 0, w - splitX, h);
+
+  // Divider line
+  ctx.strokeStyle = '#3fb950';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(splitX, 0);
+  ctx.lineTo(splitX, h);
+  ctx.stroke();
+}
+
+function setupSlider(w, h) {
+  const container = document.getElementById('diff-slider');
+  const handle = document.getElementById('slider-handle');
+  const label = document.getElementById('slider-label');
+  const canvas = document.getElementById('canvas-slider');
+
+  const updateSliderUI = () => {
+    const rect = canvas.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const relLeft = rect.left - containerRect.left;
+    const dispW = rect.width;
+    const px = relLeft + (sliderPos * dispW);
+    handle.style.left = px + 'px';
+    label.style.left = (sliderPos > 0.5 ? 12 : '') + 'px';
+    label.style.right = (sliderPos <= 0.5 ? 12 : '') + 'px';
+    label.style.top = '12px';
+    label.textContent = sliderPos > 0.5 ? '← image B' : 'image A →';
+  };
+
+  updateSliderUI();
+  window.addEventListener('resize', updateSliderUI);
+
+  // Mouse events
+  handle.onmousedown = (e) => { sliderDragging = true; e.preventDefault(); };
+  container.onmousemove = (e) => {
+    if (!sliderDragging) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    sliderPos = Math.max(0, Math.min(1, x / rect.width));
+    drawSlider(canvas, w, h);
+    updateSliderUI();
+  };
+  container.onmouseup = () => { sliderDragging = false; };
+  container.onmouseleave = () => { sliderDragging = false; };
+
+  // Touch events
+  handle.ontouchstart = (e) => { sliderDragging = true; e.preventDefault(); };
+  container.ontouchmove = (e) => {
+    if (!sliderDragging) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.touches[0].clientX - rect.left;
+    sliderPos = Math.max(0, Math.min(1, x / rect.width));
+    drawSlider(canvas, w, h);
+    updateSliderUI();
+  };
+  container.ontouchend = () => { sliderDragging = false; };
+}
+
+// --- HEATMAP MODE ---
+function renderHeatmap(w, h, d1, d2, diffMags, threshold) {
+  const canvas = document.getElementById('canvas-heatmap');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+
+  const outData = ctx.createImageData(w, h);
+  const out = outData.data;
+
+  for (let i = 0, p = 0; i < d1.length; i += 4, p++) {
+    const mag = diffMags[p];
+    if (mag === 0) {
+      // Identical — slightly tint the original pixel darker
+      out[i] = Math.floor(d1[i] * 0.3);
+      out[i+1] = Math.floor(d1[i+1] * 0.3);
+      out[i+2] = Math.floor(d1[i+2] * 0.3);
+    } else {
+      const t = mag / 255;
+      // Red gradient: amber → orange → red
+      if (t < 0.33) {
+        out[i] = 212; out[i+1] = 153; out[i+2] = 29; // amber
+      } else if (t < 0.66) {
+        out[i] = 249; out[i+1] = 115; out[i+2] = 22; // orange
+      } else {
+        out[i] = 248; out[i+1] = 81; out[i+2] = 73; // red
+      }
+    }
+    out[i+3] = 255;
+  }
+
+  ctx.putImageData(outData, 0, 0);
+}
+
+// --- SIDE BY SIDE MODE ---
+function renderSideBySide(w, h) {
+  const canvas = document.getElementById('canvas-sidebyside');
+  canvas.width = w * 2 + 4;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+
+  const imgAData = new ImageData(new Uint8ClampedArray(image1.data), w, h);
+  const imgBData = new ImageData(new Uint8ClampedArray(image2.data), w, h);
+
+  ctx.putImageData(imgAData, 0, 0);
+  ctx.putImageData(imgBData, w + 4, 0);
+
+  // Divider
+  ctx.fillStyle = '#3fb950';
+  ctx.fillRect(w, 0, 4, h);
+}
+
+// --- MODE SWITCHING ---
+function switchMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.mode-tab').forEach((t, i) => {
+    if (['slider','heatmap','sidebyside'][i] === mode) t.classList.add('active');
+  });
+
+  document.getElementById('diff-slider').classList.toggle('visible', mode === 'slider');
+  document.getElementById('diff-heatmap').classList.toggle('visible', mode === 'heatmap');
+  document.getElementById('diff-sidebyside').style.display = mode === 'sidebyside' ? 'block' : 'none';
+}
+
+function showToast(msg, type) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.className = 'toast ' + (type || 'error') + ' show';
+  clearTimeout(toast._timeout);
+  toast._timeout = setTimeout(() => toast.classList.remove('show'), 2000);
+}
+</script>
+</body>
+</html>
