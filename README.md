@@ -1,5 +1,8 @@
 # pixelduel ⚔️
 
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Deployed on Vercel](https://img.shields.io/badge/deployed%20on-Vercel-black?logo=vercel)
+
 **Pixel-by-pixel image comparison.** Zero dependencies, pure Python stdlib.
 
 Compare two images at the pixel level with configurable tolerance thresholds and ASCII-art visual diffs. Full PNG parsing from scratch — no PIL, no Pillow, no external libs.
@@ -43,6 +46,14 @@ python3 pixelduel.py diff --format json img1.png img2.png
 pixelduel parses PNG files from scratch using Python's `struct` and `zlib` modules — no external image libraries needed. It reads the IHDR chunk for dimensions, decompresses IDAT chunks, reverses PNG filter algorithms, and compares raw RGB values pixel by pixel.
 
 The `--threshold` flag controls sensitivity: a pixel is considered "different" only when at least one RGB channel differs by the threshold amount or more.
+
+## Web demo
+
+A self-contained browser demo (`index.html`) lets you drop two images and view the diff in three modes — **slider**, **heatmap**, and **side by side** — with no CLI and no backend. Open it locally:
+
+```bash
+open index.html
+```
 
 ## License
 
